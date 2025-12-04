@@ -177,8 +177,6 @@ function handleStatusNotification(event) {
       showIpAddress(status.ip);
     } else if (status.type === 'device_status') {
       updateDeviceStatus(status);
-    } else if (status.type === 'relay_status') {
-      updateRelayStatus(status);
     }
   } catch (error) {
     log(`Status: ${jsonString}`, 'info');
@@ -244,21 +242,6 @@ function updateDeviceStatus(status) {
   
   // Show action hint if in config mode with WiFi credentials
   showActionHint(status);
-  
-  // Show relay section if web server is active
-  const relaySection = document.getElementById('relaySection');
-  if (status.webserver_active && status.wifi_connected) {
-    relaySection.style.display = 'block';
-    finalizeSection.style.display = 'block';
-    
-    // Update relay status if available
-    if (status.relay_connected !== undefined) {
-      updateRelayStatus({
-        connected: status.relay_connected,
-        public_url: status.public_url
-      });
-    }
-  }
 }
 
 function showActionHint(status) {
@@ -335,7 +318,6 @@ function showIpAddressWithInternetInfo(ip) {
     ipSection = document.createElement('div');
     ipSection.id = 'ipSection';
     ipSection.className = 'card';
-    ipSection.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
     ipSection.style.color = 'white';
     ipSection.innerHTML = `
       <h2 style="margin-top: 0; color: white;">✅ Website is Live!</h2>
@@ -344,24 +326,6 @@ function showIpAddressWithInternetInfo(ip) {
         <code style="font-size: 1.25rem; color: white; word-break: break-all;">http://${ip}</code>
       </div>
       <a href="http://${ip}" target="_blank" class="btn" style="background: white; color: #059669; margin-top: 10px; display: inline-block; text-decoration: none;">Open Website →</a>
-      
-      <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.15); border-radius: 8px; border-left: 4px solid white;">
-        <h3 style="margin-top: 0; font-size: 1rem; color: white;">🌍 Access from Internet</h3>
-        <p style="font-size: 0.9rem; margin: 8px 0; line-height: 1.5;">To access this from anywhere:</p>
-        <ol style="font-size: 0.9rem; margin: 8px 0 8px 20px; line-height: 1.6;">
-          <li>Log into your router admin panel</li>
-          <li>Set up <strong>Port Forwarding</strong>:</li>
-          <ul style="margin: 5px 0 5px 20px;">
-            <li>External Port: 80 (or any port like 8080)</li>
-            <li>Internal IP: ${ip}</li>
-            <li>Internal Port: 80</li>
-            <li>Protocol: TCP</li>
-          </ul>
-          <li>Find your public IP at <a href="https://whatismyip.com" target="_blank" style="color: white; text-decoration: underline;">whatismyip.com</a></li>
-          <li>Access via: <code style="background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 3px;">http://YOUR_PUBLIC_IP</code></li>
-        </ol>
-        <p style="font-size: 0.85rem; margin: 10px 0 0 0; opacity: 0.9;">⚠️ Note: Your ISP must provide a public IP (not CGNAT). Some ISPs block port 80, use alternate ports like 8080.</p>
-      </div>
     `;
     
     // Insert before finalize section
@@ -453,58 +417,6 @@ window.removeFile = function(index) {
     uploadBtn.style.display = 'none';
   }
 };
-
-// ==================== Ngrok Relay ====================
-
-function updateRelayStatus(status) {
-  const relayStatus = document.getElementById('relayStatus');
-  const relayStatusText = document.getElementById('relayStatusText');
-  const publicUrlDisplay = document.getElementById('publicUrlDisplay');
-  const publicUrlLink = document.getElementById('publicUrlLink');
-  
-  relayStatus.style.display = 'block';
-  
-  if (status.connected && status.public_url) {
-    relayStatus.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-    relayStatus.style.color = 'white';
-    relayStatusText.textContent = '✅ Connected to relay server';
-    relayStatusText.style.color = 'white';
-    
-    publicUrlDisplay.style.display = 'block';
-    publicUrlLink.href = status.public_url;
-    publicUrlLink.textContent = status.public_url;
-    publicUrlLink.style.color = 'white';
-    
-    log(`🌍 Public URL: ${status.public_url}`, 'success');
-  } else {
-    relayStatus.style.background = '#fee';
-    relayStatus.style.color = '#c00';
-    relayStatusText.textContent = '❌ Not connected to relay';
-    publicUrlDisplay.style.display = 'none';
-  }
-}
-
-async function handleRelaySubmit(e) {
-  e.preventDefault();
-  
-  // Use current Vercel domain
-  const currentDomain = window.location.hostname;
-  const port = window.location.protocol === 'https:' ? 443 : 80;
-  const path = '/api/relay';
-  
-  log(`Configuring relay: ${currentDomain}${path}`, 'info');
-  
-  const success = await sendCommand({
-    type: 'relay_config',
-    host: currentDomain,
-    port: port,
-    path: path
-  });
-  
-  if (success) {
-    log('Relay configuration sent. Connecting to relay...', 'success');
-  }
-}
 
 // ==================== File Upload ====================
 
@@ -630,7 +542,6 @@ connectBtn.addEventListener('click', () => {
 });
 
 wifiForm.addEventListener('submit', handleWiFiSubmit);
-document.getElementById('relayForm').addEventListener('submit', handleRelaySubmit);
 fileInput.addEventListener('change', handleFileSelection);
 uploadBtn.addEventListener('click', uploadFiles);
 rebootBtn.addEventListener('click', rebootToWebServer);
