@@ -8,168 +8,77 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 
-// ==================== Configuration ====================
+#define SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
+#define COMMAND_CHAR_UUID "12345678-1234-1234-1234-123456789abd"
+#define STATUS_CHAR_UUID "12345678-1234-1234-1234-123456789abe"
+#define DEVICE_NAME "ESP32C3-Admin"
+#define CONFIG_BOOT_BUTTON 9
+#define BLE_MTU_SIZE 512
+#define MAX_CHUNK_SIZE 100
 
-// BLE Service and Characteristic UUIDs
-#define SERVICE_UUID        "12345678-1234-1234-1234-123456789abc"
-#define COMMAND_CHAR_UUID   "12345678-1234-1234-1234-123456789abd"
-#define STATUS_CHAR_UUID    "12345678-1234-1234-1234-123456789abe"
-
-// Device Configuration
-#define DEVICE_NAME         "ESP32C3-Admin"
-#define CONFIG_BOOT_BUTTON  9  // GPIO9 is BOOT button on ESP32-C3
-
-// BLE Configuration
-#define BLE_MTU_SIZE        512
-#define MAX_CHUNK_SIZE      100  // Small size to account for JSON overhead and stay under BLE limit
-
-// ==================== Global Variables ====================
-
-bool bleEnabled = true;
-bool webServerEnabled = false;
+bool bleEnabled=true,webServerEnabled=false,deviceConnected=false,oldDeviceConnected=false;
 Preferences preferences;
 WebServer server(80);
-
-// BLE Variables
-BLEServer* pServer = nullptr;
-BLECharacteristic* pCommandCharacteristic = nullptr;
-BLECharacteristic* pStatusCharacteristic = nullptr;
-bool deviceConnected = false;
-bool oldDeviceConnected = false;
-
-// File Upload State
-String currentFileName = "";
+BLEServer* pServer=nullptr;
+BLECharacteristic *pCommandCharacteristic=nullptr,*pStatusCharacteristic=nullptr;
+String currentFileName;
 File currentFile;
-size_t expectedFileSize = 0;
-size_t receivedBytes = 0;
+size_t expectedFileSize=0,receivedBytes=0;
 
-// ==================== Forward Declarations ====================
-
-void sendStatus(const char* type, const char* message, JsonObject extraData = JsonObject());
-void sendStatusWithData(const char* type, const char* message, const char* key, const char* value);
-void handleBLECommand(const char* jsonCommand);
-void handleWiFiConfig(JsonDocument& doc);
-void handleFileMeta(JsonDocument& doc);
-void handleFileChunk(JsonDocument& doc);
-void handleReboot(JsonDocument& doc);
+void sendStatus(const char*,const char*,JsonObject=JsonObject());
+void handleBLECommand(const char*);
+void handleWiFiConfig(JsonDocument&);
+void handleFileMeta(JsonDocument&);
+void handleFileChunk(JsonDocument&);
+void handleReboot(JsonDocument&);
 void handleListFiles();
-String getContentType(String filename);
+String getContentType(String);
 
-// ==================== BLE Callbacks ====================
-
-class ServerCallbacks: public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-    Serial.println("BLE Client connected");
-    sendStatus("info", "BLE client connected");
-  }
-
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
-    Serial.println("BLE Client disconnected");
-  }
+class ServerCallbacks:public BLEServerCallbacks{
+  void onConnect(BLEServer*p){deviceConnected=true;sendStatus("info","Connected");}
+  void onDisconnect(BLEServer*p){deviceConnected=false;}
 };
-
-class CommandCallbacks: public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *pCharacteristic) {
-    String value = String(pCharacteristic->getValue().c_str());
-    if (value.length() > 0) {
-      handleBLECommand(value.c_str());
-    }
+class CommandCallbacks:public BLECharacteristicCallbacks{
+  void onWrite(BLECharacteristic*c){
+    String v=String(c->getValue().c_str());
+    if(v.length()>0)handleBLECommand(v.c_str());
   }
 };
 
 // ==================== Utility Functions ====================
 
-void sendStatus(const char* type, const char* message, JsonObject extraData) {
-  if (!deviceConnected || pStatusCharacteristic == nullptr) return;
-  
-  StaticJsonDocument<512> doc;
-  doc["type"] = type;
-  doc["message"] = message;
-  
-  // Copy extra data if provided
-  if (!extraData.isNull()) {
-    for (JsonPair kv : extraData) {
-      doc[kv.key()] = kv.value();
-    }
-  }
-  
-  String output;
-  serializeJson(doc, output);
-  pStatusCharacteristic->setValue(output.c_str());
+void sendStatus(const char*t,const char*m,JsonObject e){
+  if(!deviceConnected||!pStatusCharacteristic)return;
+  StaticJsonDocument<512>d;
+  d["type"]=t;d["message"]=m;
+  if(!e.isNull())for(JsonPair kv:e)d[kv.key()]=kv.value();
+  String o;serializeJson(d,o);
+  pStatusCharacteristic->setValue(o.c_str());
   pStatusCharacteristic->notify();
-  
-  Serial.print("Status sent: ");
-  Serial.println(output);
 }
 
-void sendStatusWithData(const char* type, const char* message, const char* key, const char* value) {
-  if (!deviceConnected || pStatusCharacteristic == nullptr) return;
-  
-  StaticJsonDocument<512> doc;
-  doc["type"] = type;
-  doc["message"] = message;
-  doc[key] = value;
-  
-  String output;
-  serializeJson(doc, output);
-  pStatusCharacteristic->setValue(output.c_str());
-  pStatusCharacteristic->notify();
-  
-  Serial.print("Status sent: ");
-  Serial.println(output);
-}
-
-String getContentType(String filename) {
-  if (filename.endsWith(".html")) return "text/html";
-  else if (filename.endsWith(".css")) return "text/css";
-  else if (filename.endsWith(".js")) return "application/javascript";
-  else if (filename.endsWith(".json")) return "application/json";
-  else if (filename.endsWith(".png")) return "image/png";
-  else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) return "image/jpeg";
-  else if (filename.endsWith(".gif")) return "image/gif";
-  else if (filename.endsWith(".svg")) return "image/svg+xml";
-  else if (filename.endsWith(".ico")) return "image/x-icon";
-  else if (filename.endsWith(".xml")) return "text/xml";
-  else if (filename.endsWith(".pdf")) return "application/pdf";
-  else if (filename.endsWith(".zip")) return "application/zip";
+String getContentType(String f){
+  if(f.endsWith(".html"))return "text/html";
+  if(f.endsWith(".css"))return "text/css";
+  if(f.endsWith(".js"))return "application/javascript";
+  if(f.endsWith(".json"))return "application/json";
+  if(f.endsWith(".png"))return "image/png";
+  if(f.endsWith(".jpg")||f.endsWith(".jpeg"))return "image/jpeg";
+  if(f.endsWith(".gif"))return "image/gif";
+  if(f.endsWith(".svg"))return "image/svg+xml";
+  if(f.endsWith(".ico"))return "image/x-icon";
   return "text/plain";
 }
-
-// ==================== BLE Command Handlers ====================
-
-void handleBLECommand(const char* jsonCommand) {
-  StaticJsonDocument<1024> doc;
-  DeserializationError error = deserializeJson(doc, jsonCommand);
-  
-  if (error) {
-    Serial.print("JSON parse error: ");
-    Serial.println(error.c_str());
-    sendStatus("error", "Invalid JSON command");
-    return;
-  }
-  
-  const char* type = doc["type"];
-  Serial.print("Received command: ");
-  Serial.println(type);
-  
-  if (strcmp(type, "wifi") == 0) {
-    handleWiFiConfig(doc);
-  }
-  else if (strcmp(type, "file_meta") == 0) {
-    handleFileMeta(doc);
-  }
-  else if (strcmp(type, "file_chunk") == 0) {
-    handleFileChunk(doc);
-  }
-  else if (strcmp(type, "reboot") == 0) {
-    handleReboot(doc);
-  }
-  else if (strcmp(type, "list_files") == 0) {
-    handleListFiles();
-  }
-  else if (strcmp(type, "get_status") == 0) {
+void handleBLECommand(const char* c){
+  StaticJsonDocument<1024>doc;
+  if(deserializeJson(doc,c)){sendStatus("error","Invalid JSON");return;}
+  const char*t=doc["type"];
+  if(!strcmp(t,"wifi"))handleWiFiConfig(doc);
+  else if(!strcmp(t,"file_meta"))handleFileMeta(doc);
+  else if(!strcmp(t,"file_chunk"))handleFileChunk(doc);
+  else if(!strcmp(t,"reboot"))handleReboot(doc);
+  else if(!strcmp(t,"list_files"))handleListFiles();
+  else if(!strcmp(t,"get_status")){
     // Send current device status
     StaticJsonDocument<384> statusDoc;
     statusDoc["type"] = "device_status";
@@ -206,209 +115,100 @@ void handleBLECommand(const char* jsonCommand) {
   }
 }
 
-void handleWiFiConfig(JsonDocument& doc) {
-  const char* ssid = doc["ssid"];
-  const char* pass = doc["pass"];
-  
-  if (!ssid || !pass) {
-    sendStatus("error", "Missing SSID or password");
-    return;
-  }
-  
-  // Save WiFi credentials to NVS
-  preferences.begin("wifi", false);
-  preferences.putString("ssid", ssid);
-  preferences.putString("password", pass);
+void handleWiFiConfig(JsonDocument&d){
+  const char*s=d["ssid"],*p=d["pass"];
+  if(!s||!p){sendStatus("error","Missing SSID/pass");return;}
+  preferences.begin("wifi",0);
+  preferences.putString("ssid",s);
+  preferences.putString("password",p);
   preferences.end();
-  
-  Serial.println("WiFi credentials saved");
-  sendStatus("success", "WiFi credentials saved");
-  
-  // Try to connect to WiFi immediately to get IP
-  Serial.println("Attempting to connect to WiFi...");
+  sendStatus("success","WiFi saved");
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, pass);
+  WiFi.begin(s,p);
   
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  Serial.println();
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    String ip = WiFi.localIP().toString();
-    Serial.print("WiFi connected! IP: ");
-    Serial.println(ip);
-    
-    // Send WiFi status with IP to BLE client
-    StaticJsonDocument<256> statusDoc;
-    statusDoc["type"] = "wifi_status";
-    statusDoc["connected"] = true;
-    statusDoc["ip"] = ip;
-    statusDoc["ssid"] = ssid;
-    statusDoc["rssi"] = WiFi.RSSI();
-    
-    String output;
-    serializeJson(statusDoc, output);
-    if (deviceConnected && pStatusCharacteristic != nullptr) {
-      pStatusCharacteristic->setValue(output.c_str());
+  for(int i=0;WiFi.status()!=WL_CONNECTED&&i<20;i++)delay(500);
+  if(WiFi.status()==WL_CONNECTED){
+    StaticJsonDocument<256>st;
+    st["type"]="wifi_status";
+    st["connected"]=1;
+    st["ip"]=WiFi.localIP().toString();
+    st["ssid"]=s;
+    st["rssi"]=WiFi.RSSI();
+    String o;serializeJson(st,o);
+    if(deviceConnected&&pStatusCharacteristic){
+      pStatusCharacteristic->setValue(o.c_str());
       pStatusCharacteristic->notify();
     }
-    
-    // Disconnect WiFi to stay in BLE mode
     WiFi.disconnect();
-  } else {
-    sendStatus("warning", "WiFi credentials saved but connection test failed. Will try again on reboot.");
-  }
+  }else sendStatus("warning","Connection test failed");
 }
 
-void handleFileMeta(JsonDocument& doc) {
-  const char* filename = doc["name"];
-  size_t filesize = doc["size"];
-  
-  if (!filename) {
-    sendStatus("error", "Missing filename");
-    return;
-  }
-  
-  // Close any existing file
-  if (currentFile) {
-    currentFile.close();
-  }
-  
-  // Ensure filename starts with /
-  currentFileName = filename;
-  if (!currentFileName.startsWith("/")) {
-    currentFileName = "/" + currentFileName;
-  }
-  
-  // Delete existing file if it exists
-  if (SPIFFS.exists(currentFileName)) {
-    SPIFFS.remove(currentFileName);
-  }
-  
-  // Open new file for writing
-  currentFile = SPIFFS.open(currentFileName, FILE_WRITE);
-  if (!currentFile) {
-    sendStatus("error", "Failed to create file");
-    Serial.println("Failed to create file: " + currentFileName);
-    return;
-  }
-  
-  expectedFileSize = filesize;
-  receivedBytes = 0;
-  
-  Serial.print("File meta received: ");
-  Serial.print(currentFileName);
-  Serial.print(" (");
-  Serial.print(expectedFileSize);
-  Serial.println(" bytes)");
-  
-  sendStatus("success", "Ready to receive file");
+void handleFileMeta(JsonDocument&d){
+  const char*fn=d["name"];
+  if(!fn){sendStatus("error","Missing filename");return;}
+  if(currentFile)currentFile.close();
+  currentFileName=fn;
+  if(!currentFileName.startsWith("/"))currentFileName="/"+currentFileName;
+  if(SPIFFS.exists(currentFileName))SPIFFS.remove(currentFileName);
+  currentFile=SPIFFS.open(currentFileName,FILE_WRITE);
+  if(!currentFile){sendStatus("error","Failed to create file");return;}
+  expectedFileSize=d["size"];
+  receivedBytes=0;
+  sendStatus("success","Ready");
 }
 
-void handleFileChunk(JsonDocument& doc) {
-  if (!currentFile) {
-    sendStatus("error", "No active file transfer");
-    return;
-  }
-  
-  JsonArray dataArray = doc["data"];
-  size_t offset = doc["offset"];
-  
-  if (dataArray.isNull()) {
-    sendStatus("error", "Missing chunk data");
-    return;
-  }
-  
-  // Write chunk to file
-  size_t chunkSize = dataArray.size();
-  uint8_t* buffer = new uint8_t[chunkSize];
-  
-  for (size_t i = 0; i < chunkSize; i++) {
-    buffer[i] = dataArray[i].as<uint8_t>();
-  }
-  
-  size_t written = currentFile.write(buffer, chunkSize);
-  delete[] buffer;
-  
-  if (written != chunkSize) {
-    sendStatus("error", "File write failed");
-    currentFile.close();
-    return;
-  }
-  
-  receivedBytes += written;
-  
-  Serial.print("Chunk received: ");
-  Serial.print(receivedBytes);
-  Serial.print(" / ");
-  Serial.print(expectedFileSize);
-  Serial.println(" bytes");
-  
-  // Send progress update
-  StaticJsonDocument<256> statusDoc;
-  statusDoc["type"] = "file_progress";
-  statusDoc["name"] = currentFileName;
-  statusDoc["bytes_received"] = receivedBytes;
-  statusDoc["total_bytes"] = expectedFileSize;
-  
-  String output;
-  serializeJson(statusDoc, output);
-  pStatusCharacteristic->setValue(output.c_str());
+void handleFileChunk(JsonDocument&d){
+  if(!currentFile){sendStatus("error","No active transfer");return;}
+  JsonArray a=d["data"];
+  if(a.isNull()){sendStatus("error","Missing data");return;}
+  size_t sz=a.size();
+  uint8_t*b=new uint8_t[sz];
+  for(size_t i=0;i<sz;i++)b[i]=a[i];
+  size_t w=currentFile.write(b,sz);
+  delete[]b;
+  if(w!=sz){sendStatus("error","Write failed");currentFile.close();return;}
+  receivedBytes+=w;
+  StaticJsonDocument<256>s;
+  s["type"]="file_progress";
+  s["name"]=currentFileName;
+  s["bytes_received"]=receivedBytes;
+  s["total_bytes"]=expectedFileSize;
+  String o;serializeJson(s,o);
+  pStatusCharacteristic->setValue(o.c_str());
   pStatusCharacteristic->notify();
-  
-  // Check if file is complete
-  if (receivedBytes >= expectedFileSize) {
+  if(receivedBytes>=expectedFileSize){
     currentFile.close();
-    Serial.println("File transfer complete: " + currentFileName);
-    sendStatus("success", "File saved successfully");
-    currentFileName = "";
-    receivedBytes = 0;
-    expectedFileSize = 0;
+    sendStatus("success","File saved");
+    currentFileName="";receivedBytes=0;expectedFileSize=0;
   }
 }
 
-void handleReboot(JsonDocument& doc) {
-  const char* mode = doc["mode"];
-  
-  if (strcmp(mode, "web_server") == 0) {
-    // Start web server (no reboot needed)
-    if (!webServerEnabled) {
-      sendStatus("info", "Starting web server...");
-      
-      if (connectToWiFi()) {
+void handleReboot(JsonDocument&d){
+  const char*m=d["mode"];
+  if(!strcmp(m,"web_server")){
+    if(!webServerEnabled){
+      sendStatus("info","Starting server...");
+      if(connectToWiFi()){
         setupWebServer();
-        webServerEnabled = true;
-        sendStatus("success", "Web server started! Site is now live.");
-        
-        // Send updated status
-        StaticJsonDocument<384> statusDoc;
-        statusDoc["type"] = "device_status";
-        statusDoc["ble_active"] = bleEnabled;
-        statusDoc["webserver_active"] = webServerEnabled;
-        statusDoc["wifi_connected"] = true;
-        statusDoc["ip"] = WiFi.localIP().toString();
-        statusDoc["ssid"] = WiFi.SSID();
-        
-        String output;
-        serializeJson(statusDoc, output);
-        if (deviceConnected && pStatusCharacteristic != nullptr) {
-          pStatusCharacteristic->setValue(output.c_str());
+        webServerEnabled=1;
+        sendStatus("success","Server started");
+        StaticJsonDocument<384>s;
+        s["type"]="device_status";
+        s["ble_active"]=bleEnabled;
+        s["webserver_active"]=1;
+        s["wifi_connected"]=1;
+        s["ip"]=WiFi.localIP().toString();
+        s["ssid"]=WiFi.SSID();
+        String o;serializeJson(s,o);
+        if(deviceConnected&&pStatusCharacteristic){
+          pStatusCharacteristic->setValue(o.c_str());
           pStatusCharacteristic->notify();
         }
-      } else {
-        sendStatus("error", "Failed to connect to WiFi");
-      }
-    } else {
-      sendStatus("info", "Web server already running");
-    }
+      }else sendStatus("error","WiFi failed");
+    }else sendStatus("info","Already running");
     return;
   }
-  else if (strcmp(mode, "ble_config") == 0) {
-    // Reset configuration and reboot
+  else if (strcmp(m, "ble_config") == 0) {
     preferences.begin("config", false);
     preferences.putBool("configured", false);
     preferences.end();
@@ -442,228 +242,90 @@ void handleListFiles() {
 
 // ==================== BLE Setup ====================
 
-void setupBLE() {
-  Serial.println("Initializing BLE...");
-  
+void setupBLE(){
   BLEDevice::init(DEVICE_NAME);
-  
-  // Create BLE Server
-  pServer = BLEDevice::createServer();
+  pServer=BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
-  
-  // Create BLE Service
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  
-  // Create Command Characteristic (Write)
-  pCommandCharacteristic = pService->createCharacteristic(
-    COMMAND_CHAR_UUID,
-    BLECharacteristic::PROPERTY_WRITE
-  );
+  BLEService*s=pServer->createService(SERVICE_UUID);
+  pCommandCharacteristic=s->createCharacteristic(COMMAND_CHAR_UUID,BLECharacteristic::PROPERTY_WRITE);
   pCommandCharacteristic->setCallbacks(new CommandCallbacks());
-  
-  // Create Status Characteristic (Read + Notify)
-  pStatusCharacteristic = pService->createCharacteristic(
-    STATUS_CHAR_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-  );
+  pStatusCharacteristic=s->createCharacteristic(STATUS_CHAR_UUID,BLECharacteristic::PROPERTY_READ|BLECharacteristic::PROPERTY_NOTIFY);
   pStatusCharacteristic->addDescriptor(new BLE2902());
-  
-  // Start the service
-  pService->start();
-  
-  // Start advertising
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);
-  pAdvertising->setMinPreferred(0x12);
+  s->start();
+  BLEAdvertising*a=BLEDevice::getAdvertising();
+  a->addServiceUUID(SERVICE_UUID);
+  a->setScanResponse(1);
+  a->setMinPreferred(0x06);
+  a->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
-  
-  Serial.println("BLE advertising started");
-  Serial.print("Device name: ");
-  Serial.println(DEVICE_NAME);
 }
-
-// ==================== WiFi & Web Server ====================
-
-bool connectToWiFi() {
-  preferences.begin("wifi", true);
-  String ssid = preferences.getString("ssid", "");
-  String password = preferences.getString("password", "");
+bool connectToWiFi(){
+  preferences.begin("wifi",1);
+  String s=preferences.getString("ssid",""),p=preferences.getString("password","");
   preferences.end();
-  
-  if (ssid.length() == 0) {
-    Serial.println("No WiFi credentials found");
-    return false;
-  }
-  
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(ssid);
-  
+  if(!s.length())return 0;
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid.c_str(), password.c_str());
-  
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  Serial.println();
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("WiFi connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    return true;
-  }
-  
-  Serial.println("WiFi connection failed");
-  return false;
+  WiFi.begin(s.c_str(),p.c_str());
+  for(int i=0;WiFi.status()!=WL_CONNECTED&&i<30;i++)delay(500);
+  return WiFi.status()==WL_CONNECTED;
 }
 
-void handleFileRequest() {
-  String path = server.uri();
-  
-  // Root path serves index.html
-  if (path == "/") {
-    path = "/index.html";
-  }
-  
-  Serial.print("Request: ");
-  Serial.println(path);
-  
-  if (SPIFFS.exists(path)) {
-    File file = SPIFFS.open(path, "r");
-    String contentType = getContentType(path);
-    server.streamFile(file, contentType);
-    file.close();
-    Serial.println("File served successfully");
-  } else {
-    Serial.println("File not found");
-    server.send(404, "text/plain", "File Not Found");
-  }
+void handleFileRequest(){
+  String p=server.uri();
+  if(p=="/")p="/index.html";
+  if(SPIFFS.exists(p)){
+    File f=SPIFFS.open(p,"r");
+    server.streamFile(f,getContentType(p));
+    f.close();
+  }else server.send(404,"text/plain","Not Found");
 }
-
-void handleStatus() {
-  StaticJsonDocument<256> doc;
-  doc["device"] = DEVICE_NAME;
-  doc["mode"] = "web_server";
-  doc["ip"] = WiFi.localIP().toString();
-  doc["ssid"] = WiFi.SSID();
-  doc["rssi"] = WiFi.RSSI();
-  
-  // List files
-  JsonArray files = doc.createNestedArray("files");
-  File root = SPIFFS.open("/");
-  File file = root.openNextFile();
-  while (file) {
-    files.add(String(file.name()));
-    file = root.openNextFile();
-  }
-  
-  String output;
-  serializeJson(doc, output);
-  server.send(200, "application/json", output);
+void handleStatus(){
+  StaticJsonDocument<256>d;
+  d["device"]=DEVICE_NAME;
+  d["mode"]="web_server";
+  d["ip"]=WiFi.localIP().toString();
+  d["ssid"]=WiFi.SSID();
+  d["rssi"]=WiFi.RSSI();
+  JsonArray f=d.createNestedArray("files");
+  File r=SPIFFS.open("/"),file=r.openNextFile();
+  while(file){f.add(String(file.name()));file=r.openNextFile();}
+  String o;serializeJson(d,o);
+  server.send(200,"application/json",o);
 }
-
-void setupWebServer() {
-  // Handle all requests with file serving
+void setupWebServer(){
   server.onNotFound(handleFileRequest);
-  
-  // Status endpoint
-  server.on("/status", handleStatus);
-  
+  server.on("/status",handleStatus);
   server.begin();
-  Serial.println("HTTP server started on port 80");
 }
-
-// ==================== Main Setup & Loop ====================
-
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  
-  Serial.println("\n\n=================================");
-  Serial.println("ESP32 C3 - BLE Config & Web Server");
-  Serial.println("=================================\n");
-  
-  // Initialize SPIFFS
-  if (!SPIFFS.begin(true)) {
-    Serial.println("SPIFFS mount failed!");
-    return;
-  }
-  Serial.println("SPIFFS mounted successfully");
-  
-  // List files in SPIFFS
-  Serial.println("\nFiles in SPIFFS:");
-  File root = SPIFFS.open("/");
-  File file = root.openNextFile();
-  while (file) {
-    Serial.print("  ");
-    Serial.print(file.name());
-    Serial.print(" (");
-    Serial.print(file.size());
-    Serial.println(" bytes)");
-    file = root.openNextFile();
-  }
-  Serial.println();
-  
-  // Check boot button for config mode reset
-  pinMode(CONFIG_BOOT_BUTTON, INPUT_PULLUP);
-  if (digitalRead(CONFIG_BOOT_BUTTON) == LOW) {
-    Serial.println("Boot button pressed - forcing BLE config mode");
-    preferences.begin("config", false);
-    preferences.putBool("configured", false);
+void setup(){
+  if(!SPIFFS.begin(1))return;
+  pinMode(CONFIG_BOOT_BUTTON,INPUT_PULLUP);
+  if(digitalRead(CONFIG_BOOT_BUTTON)==LOW){
+    preferences.begin("config",0);
+    preferences.putBool("configured",0);
     preferences.end();
     delay(1000);
   }
-  
-  // Always start BLE for configuration
-  Serial.println("Starting BLE for configuration...");
   setupBLE();
-  bleEnabled = true;
-  
-  // Check if we should auto-start web server
-  preferences.begin("config", true);
-  bool configured = preferences.getBool("configured", false);
+  bleEnabled=1;
+  preferences.begin("config",1);
+  bool c=preferences.getBool("configured",0);
   preferences.end();
-  
-  if (configured) {
-    Serial.println("Auto-starting web server...");
-    if (connectToWiFi()) {
-      setupWebServer();
-      webServerEnabled = true;
-      Serial.println("Web server started!");
-    } else {
-      Serial.println("WiFi connection failed - web server not started");
-    }
-  } else {
-    Serial.println("Web server not configured - use BLE to configure");
+  if(c&&connectToWiFi()){
+    setupWebServer();
+    webServerEnabled=1;
   }
-  
-  Serial.println("\nSetup complete!");
 }
 
-void loop() {
-  // Handle BLE if enabled
-  if (bleEnabled) {
-    if (!deviceConnected && oldDeviceConnected) {
+void loop(){
+  if(bleEnabled){
+    if(!deviceConnected&&oldDeviceConnected){
       delay(500);
       pServer->startAdvertising();
-      Serial.println("Restarted BLE advertising");
-      oldDeviceConnected = deviceConnected;
+      oldDeviceConnected=deviceConnected;
     }
-    
-    if (deviceConnected && !oldDeviceConnected) {
-      oldDeviceConnected = deviceConnected;
-    }
+    if(deviceConnected&&!oldDeviceConnected)oldDeviceConnected=deviceConnected;
   }
-  
-  // Handle web server if enabled
-  if (webServerEnabled) {
-    server.handleClient();
-  }
-  
+  if(webServerEnabled)server.handleClient();
   delay(10);
 }
