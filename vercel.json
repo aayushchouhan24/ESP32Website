@@ -8,6 +8,6 @@
     }
   ],
   "env": {
-    "NGROK_AUTH_TOKEN": "@ngrok-auth-token"
+    "NGROK_AUTH_TOKEN": "36OqSJkrdUpqHkhEsKZsEdGHbMB_6ewX55gh3Ssf5EWRGnLCb"
   }
 }
