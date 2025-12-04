@@ -1,0 +1,26 @@
+{
+  "name": "esp32-admin-panel",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Web Bluetooth admin panel for ESP32 C3 configuration and file upload",
+  "type": "module",
+  "author": "Aayush",
+  "keywords": [
+    "esp32",
+    "web-bluetooth",
+    "admin-panel",
+    "iot",
+    "bluetooth-le"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ngrok/ngrok": "^1.4.0"
+  },
+  "devDependencies": {
+    "vite": "^7.2.4"
+  }
+}
