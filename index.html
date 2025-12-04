@@ -1,159 +1,167 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ESP32 Admin Panel</title>
-    <link rel="stylesheet" href="/src/style.css" />
-  </head>
-  <body>
-    <div id="app">
-      <div class="container">
-        <header>
-          <h1>ESP32 Admin Panel</h1>
-          <p class="subtitle">Configure and deploy your ESP32 web server via Bluetooth</p>
-        </header>
 
-        <div class="status-bar" id="statusBar">
-          <span class="status-indicator" id="statusIndicator"></span>
-          <span id="statusText">Not Connected</span>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ESP32 Admin Panel</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+
+<body>
+  <div id="app">
+    <div class="container">
+      <header>
+        <h1>ESP32 Admin Panel</h1>
+        <p class="subtitle">Configure and deploy your ESP32 web server via Bluetooth</p>
+      </header>
+
+      <div class="status-bar" id="statusBar">
+        <span class="status-indicator" id="statusIndicator"></span>
+        <span id="statusText">Not Connected</span>
+      </div>
+
+      <!-- Device Status Section -->
+      <div class="card" id="deviceStatus" style="display: none; margin-top: 20px;">
+        <h3 style="margin-top: 0;">📊 Device Status</h3>
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-label">Mode:</span>
+            <span id="deviceMode" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">WiFi:</span>
+            <span id="wifiStatus" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Website:</span>
+            <span id="websiteStatus" class="status-value">-</span>
+          </div>
+          <div class="status-item" id="ipAddressItem" style="display: none;">
+            <span class="status-label">Local IP:</span>
+            <span id="deviceIp" class="status-value">-</span>
+          </div>
         </div>
+        <button id="refreshStatusBtn" class="btn btn-secondary btn-small" style="margin-top: 10px;">Refresh
+          Status</button>
+      </div>
 
-        <!-- Device Status Section -->
-        <div class="card" id="deviceStatus" style="display: none; margin-top: 20px;">
-          <h3 style="margin-top: 0;">📊 Device Status</h3>
-          <div class="status-grid">
-            <div class="status-item">
-              <span class="status-label">Mode:</span>
-              <span id="deviceMode" class="status-value">-</span>
+      <main>
+        <!-- Connection Section -->
+        <section class="card">
+          <h2>1. Connect to Device</h2>
+          <p class="help-text">Click to discover and connect to your ESP32 C3 device via Bluetooth.</p>
+          <button id="connectBtn" class="btn btn-primary">Connect via Bluetooth</button>
+        </section>
+
+        <!-- WiFi Configuration Section -->
+        <section class="card" id="wifiSection" style="display: none;">
+          <h2>2. Configure WiFi</h2>
+          <p class="help-text">Enter your WiFi credentials so the ESP32 can connect to your network.</p>
+          <form id="wifiForm">
+            <div class="form-group">
+              <label for="ssid">WiFi SSID</label>
+              <input type="text" id="ssid" required placeholder="Your WiFi Network Name" />
             </div>
-            <div class="status-item">
-              <span class="status-label">WiFi:</span>
-              <span id="wifiStatus" class="status-value">-</span>
+            <div class="form-group">
+              <label for="password">WiFi Password</label>
+              <input type="password" id="password" required placeholder="Your WiFi Password" />
             </div>
-            <div class="status-item">
-              <span class="status-label">Website:</span>
-              <span id="websiteStatus" class="status-value">-</span>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+              <button type="submit" class="btn btn-primary" style="flex: 1;">Save WiFi Credentials</button>
+              <button type="button" id="clearWifiBtn" class="btn btn-secondary">Clear Saved</button>
             </div>
-            <div class="status-item" id="ipAddressItem" style="display: none;">
-              <span class="status-label">Local IP:</span>
-              <span id="deviceIp" class="status-value">-</span>
+          </form>
+        </section>
+
+        <!-- File Upload Section -->
+        <section class="card" id="uploadSection" style="display: none;">
+          <h2>3. Upload Website Files</h2>
+          <p class="help-text">Upload your website files. Start with index.html and add CSS, JS, and images.</p>
+
+          <div class="file-upload-area">
+            <input type="file" id="fileInput" multiple accept=".html,.css,.js,.json,.png,.jpg,.jpeg,.gif,.svg,.ico" />
+            <label for="fileInput" class="file-label">
+              <span class="upload-icon">📁</span>
+              <span>Choose Files or Drag & Drop</span>
+            </label>
+          </div>
+
+          <div id="fileList" class="file-list"></div>
+
+          <div class="upload-progress" id="uploadProgress" style="display: none;">
+            <div class="progress-info">
+              <span id="currentFile">Uploading...</span>
+              <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill"></div>
             </div>
           </div>
-          <button id="refreshStatusBtn" class="btn btn-secondary btn-small" style="margin-top: 10px;">Refresh Status</button>
-        </div>
 
-        <main>
-          <!-- Connection Section -->
-          <section class="card">
-            <h2>1. Connect to Device</h2>
-            <p class="help-text">Click to discover and connect to your ESP32 C3 device via Bluetooth.</p>
-            <button id="connectBtn" class="btn btn-primary">Connect via Bluetooth</button>
-          </section>
+          <button id="uploadBtn" class="btn btn-primary" style="display: none;">Upload Files to ESP32</button>
+        </section>
 
-          <!-- WiFi Configuration Section -->
-          <section class="card" id="wifiSection" style="display: none;">
-            <h2>2. Configure WiFi</h2>
-            <p class="help-text">Enter your WiFi credentials so the ESP32 can connect to your network.</p>
-            <form id="wifiForm">
-              <div class="form-group">
-                <label for="ssid">WiFi SSID</label>
-                <input type="text" id="ssid" required placeholder="Your WiFi Network Name" />
-              </div>
-              <div class="form-group">
-                <label for="password">WiFi Password</label>
-                <input type="password" id="password" required placeholder="Your WiFi Password" />
-              </div>
-              <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button type="submit" class="btn btn-primary" style="flex: 1;">Save WiFi Credentials</button>
-                <button type="button" id="clearWifiBtn" class="btn btn-secondary">Clear Saved</button>
-              </div>
-            </form>
-          </section>
+        <!-- Finalize Section -->
+        <section class="card" id="finalizeSection" style="display: none;">
+          <h2>4. Start Web Server</h2>
+          <p class="help-text">Start the web server to make your website accessible. BLE will remain active for further
+            configuration.</p>
+          <button id="rebootBtn" class="btn btn-success">Start Web Server</button>
+        </section>
 
-          <!-- File Upload Section -->
-          <section class="card" id="uploadSection" style="display: none;">
-            <h2>3. Upload Website Files</h2>
-            <p class="help-text">Upload your website files. Start with index.html and add CSS, JS, and images.</p>
-            
-            <div class="file-upload-area">
-              <input type="file" id="fileInput" multiple accept=".html,.css,.js,.json,.png,.jpg,.jpeg,.gif,.svg,.ico" />
-              <label for="fileInput" class="file-label">
-                <span class="upload-icon">📁</span>
-                <span>Choose Files or Drag & Drop</span>
-              </label>
+        <!-- Internet Access Section -->
+        <section class="card" id="relaySection" style="display: none;">
+          <h2>5. 🌍 Internet Access (Ngrok)</h2>
+          <p class="help-text">Make your ESP32 accessible from anywhere without router configuration!</p>
+
+          <div id="relayStatus" class="relay-status"
+            style="display: none; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+            <h3 style="margin-top: 0;">Status</h3>
+            <p id="relayStatusText">Not connected</p>
+            <div id="publicUrlDisplay" style="display: none; margin-top: 10px;">
+              <strong>Public URL:</strong><br>
+              <a id="publicUrlLink" href="#" target="_blank" style="font-size: 1.1rem; word-break: break-all;"></a>
             </div>
+          </div>
 
-            <div id="fileList" class="file-list"></div>
+          <form id="relayForm">
+            <p style="font-size: 0.95rem; margin-bottom: 15px; color: #374151;">
+              The relay is built into this admin panel! Just click connect.
+            </p>
+            <button type="submit" class="btn btn-primary">Connect to Internet Relay</button>
+          </form>
 
-            <div class="upload-progress" id="uploadProgress" style="display: none;">
-              <div class="progress-info">
-                <span id="currentFile">Uploading...</span>
-                <span id="progressPercent">0%</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
-              </div>
-            </div>
+          <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 8px; font-size: 0.9rem;">
+            <strong>📝 How it works:</strong>
+            <ol style="margin: 10px 0 0 20px; line-height: 1.8;">
+              <li>This admin panel includes a built-in relay server</li>
+              <li>Click "Connect to Internet Relay" above</li>
+              <li>ESP32 connects to this Vercel deployment</li>
+              <li>Ngrok creates a public tunnel automatically</li>
+              <li>You'll get a public URL to access your ESP32!</li>
+            </ol>
+            <p style="margin: 10px 0 0 0;"><strong>⚙️ Setup Required:</strong> Add <code>NGROK_AUTH_TOKEN</code> to
+              Vercel environment variables (get token from <a href="https://ngrok.com" target="_blank">ngrok.com</a>)
+            </p>
+          </div>
+        </section>
 
-            <button id="uploadBtn" class="btn btn-primary" style="display: none;">Upload Files to ESP32</button>
-          </section>
+        <!-- Log Section -->
+        <section class="card">
+          <h2>Activity Log</h2>
+          <div id="logOutput" class="log-output"></div>
+          <button id="clearLogBtn" class="btn btn-secondary btn-small">Clear Log</button>
+        </section>
+      </main>
 
-          <!-- Finalize Section -->
-          <section class="card" id="finalizeSection" style="display: none;">
-            <h2>4. Start Web Server</h2>
-            <p class="help-text">Start the web server to make your website accessible. BLE will remain active for further configuration.</p>
-            <button id="rebootBtn" class="btn btn-success">Start Web Server</button>
-          </section>
-
-          <!-- Internet Access Section -->
-          <section class="card" id="relaySection" style="display: none;">
-            <h2>5. 🌍 Internet Access (Ngrok)</h2>
-            <p class="help-text">Make your ESP32 accessible from anywhere without router configuration!</p>
-            
-            <div id="relayStatus" class="relay-status" style="display: none; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-              <h3 style="margin-top: 0;">Status</h3>
-              <p id="relayStatusText">Not connected</p>
-              <div id="publicUrlDisplay" style="display: none; margin-top: 10px;">
-                <strong>Public URL:</strong><br>
-                <a id="publicUrlLink" href="#" target="_blank" style="font-size: 1.1rem; word-break: break-all;"></a>
-              </div>
-            </div>
-            
-            <form id="relayForm">
-              <p style="font-size: 0.95rem; margin-bottom: 15px; color: #374151;">
-                The relay is built into this admin panel! Just click connect.
-              </p>
-              <button type="submit" class="btn btn-primary">Connect to Internet Relay</button>
-            </form>
-            
-            <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 8px; font-size: 0.9rem;">
-              <strong>📝 How it works:</strong>
-              <ol style="margin: 10px 0 0 20px; line-height: 1.8;">
-                <li>This admin panel includes a built-in relay server</li>
-                <li>Click "Connect to Internet Relay" above</li>
-                <li>ESP32 connects to this Vercel deployment</li>
-                <li>Ngrok creates a public tunnel automatically</li>
-                <li>You'll get a public URL to access your ESP32!</li>
-              </ol>
-              <p style="margin: 10px 0 0 0;"><strong>⚙️ Setup Required:</strong> Add <code>NGROK_AUTH_TOKEN</code> to Vercel environment variables (get token from <a href="https://ngrok.com" target="_blank">ngrok.com</a>)</p>
-            </div>
-          </section>
-
-          <!-- Log Section -->
-          <section class="card">
-            <h2>Activity Log</h2>
-            <div id="logOutput" class="log-output"></div>
-            <button id="clearLogBtn" class="btn btn-secondary btn-small">Clear Log</button>
-          </section>
-        </main>
-
-        <footer>
-          <p>Make sure your browser supports Web Bluetooth (Chrome, Edge, Opera)</p>
-          <p class="small">Built for ESP32 C3 Mini | December 2025</p>
-        </footer>
-      </div>
+      <footer>
+        <p>Make sure your browser supports Web Bluetooth (Chrome, Edge, Opera)</p>
+        <p class="small">Built for ESP32 C3 Mini | December 2025</p>
+      </footer>
     </div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+
 </html>
