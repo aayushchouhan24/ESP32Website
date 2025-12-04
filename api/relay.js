@@ -1,6 +1,6 @@
 // Vercel Serverless Function for ESP32 Relay
 import ngrok from '@ngrok/ngrok';
-import { Server } from 'ws';
+import WebSocket from 'ws';
 
 let esp32Socket = null;
 let activeConnections = new Map();
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
   // WebSocket upgrade for ESP32
   if (upgradeHeader === 'websocket') {
     if (!wss) {
-      wss = new Server({ noServer: true });
+      wss = new WebSocket.Server({ noServer: true });
       
       wss.on('connection', async (socket) => {
         esp32Socket = socket;
