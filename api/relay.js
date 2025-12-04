@@ -1,10 +1,12 @@
 // Vercel Serverless Function for ESP32 Relay
 import ngrok from '@ngrok/ngrok';
+import { Server } from 'ws';
 
 let esp32Socket = null;
 let activeConnections = new Map();
 let ngrokListener = null;
 let publicUrl = null;
+let wss = null;
 
 // Initialize ngrok tunnel
 async function initNgrok() {
@@ -17,7 +19,6 @@ async function initNgrok() {
     });
     
     publicUrl = ngrokListener.url();
-    console.log('Ngrok tunnel created:', publicUrl);
     return publicUrl;
   } catch (error) {
     console.error('Ngrok error:', error);
@@ -29,61 +30,65 @@ export const config = {
   runtime: 'nodejs',
 };
 
-export default async function handler(req) {
-  const url = new URL(req.url);
+export default async function handler(req, res) {
+  const upgradeHeader = req.headers['upgrade'];
   
   // WebSocket upgrade for ESP32
-  if (req.headers.get('upgrade') === 'websocket') {
-    const { socket, response } = Deno.upgradeWebSocket(req);
-    
-    socket.addEventListener('open', async () => {
-      console.log('ESP32 connected');
-      esp32Socket = socket;
+  if (upgradeHeader === 'websocket') {
+    if (!wss) {
+      wss = new Server({ noServer: true });
       
-      // Initialize ngrok and send URL to ESP32
-      const url = await initNgrok();
-      if (url) {
-        socket.send(JSON.stringify({
-          type: 'registered',
-          success: true,
-          publicUrl: url
-        }));
-      }
-    });
-    
-    socket.addEventListener('message', (event) => {
-      try {
-        const message = JSON.parse(event.data);
+      wss.on('connection', async (socket) => {
+        esp32Socket = socket;
         
-        if (message.type === 'http_response') {
-          const { requestId, statusCode, headers, body } = message;
-          const connection = activeConnections.get(requestId);
-          
-          if (connection) {
-            connection.resolve({
-              statusCode: statusCode || 200,
-              headers: headers || {},
-              body: body || ''
-            });
-            activeConnections.delete(requestId);
-          }
+        // Initialize ngrok and send URL to ESP32
+        const url = await initNgrok();
+        if (url) {
+          socket.send(JSON.stringify({
+            type: 'registered',
+            success: true,
+            publicUrl: url
+          }));
         }
-      } catch (error) {
-        console.error('Error handling ESP32 message:', error);
-      }
+        
+        socket.on('message', (data) => {
+          try {
+            const message = JSON.parse(data.toString());
+            
+            if (message.type === 'http_response') {
+              const { requestId, statusCode, headers, body } = message;
+              const connection = activeConnections.get(requestId);
+              
+              if (connection) {
+                connection.resolve({
+                  statusCode: statusCode || 200,
+                  headers: headers || {},
+                  body: body || ''
+                });
+                activeConnections.delete(requestId);
+              }
+            }
+          } catch (error) {
+            console.error('Error handling ESP32 message:', error);
+          }
+        });
+        
+        socket.on('close', () => {
+          esp32Socket = null;
+        });
+      });
+    }
+    
+    wss.handleUpgrade(req, req.socket, Buffer.alloc(0), (ws) => {
+      wss.emit('connection', ws, req);
     });
     
-    socket.addEventListener('close', () => {
-      console.log('ESP32 disconnected');
-      esp32Socket = null;
-    });
-    
-    return response;
+    return;
   }
   
   // HTTP requests - forward to ESP32
   if (!esp32Socket || esp32Socket.readyState !== 1) {
-    return new Response(`
+    res.status(503).type('html').send(`
       <!DOCTYPE html>
       <html>
         <head><title>ESP32 Offline</title></head>
@@ -93,10 +98,8 @@ export default async function handler(req) {
           <p>Please ensure your ESP32 is powered on and connected to WiFi.</p>
         </body>
       </html>
-    `, {
-      status: 503,
-      headers: { 'Content-Type': 'text/html' }
-    });
+    `);
+    return;
   }
   
   // Create request ID
@@ -107,8 +110,8 @@ export default async function handler(req) {
     type: 'http_request',
     requestId,
     method: req.method,
-    path: url.pathname + url.search,
-    headers: Object.fromEntries(req.headers.entries())
+    path: req.url,
+    headers: req.headers
   };
   
   esp32Socket.send(JSON.stringify(requestData));
@@ -125,13 +128,8 @@ export default async function handler(req) {
       }, 30000);
     });
     
-    return new Response(response.body, {
-      status: response.statusCode,
-      headers: response.headers
-    });
+    res.status(response.statusCode).set(response.headers).send(response.body);
   } catch (error) {
-    return new Response('Gateway timeout - ESP32 did not respond', {
-      status: 504
-    });
+    res.status(504).send('Gateway timeout - ESP32 did not respond');
   }
 }
