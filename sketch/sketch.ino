@@ -56,9 +56,9 @@ bool oldDeviceConnected = false;
 // Ngrok Relay Variables
 bool relayConnected = false;
 String publicNgrokUrl = "";
-String relayServerHost = "";
-int relayServerPort = 80;
-String relayServerPath = "/";
+String relayServerHost = "esp-web-deoloy.vercel.app";
+int relayServerPort = 443;
+String relayServerPath = "/api/relay";
 
 // File Upload State
 String currentFileName = "";
@@ -519,7 +519,7 @@ void connectToRelay() {
   Serial.print("Connecting to relay server: ");
   Serial.println(relayServerHost);
   
-  webSocket.begin(relayServerHost, relayServerPort, relayServerPath);
+  webSocket.beginSSL(relayServerHost, relayServerPort, relayServerPath);
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }
