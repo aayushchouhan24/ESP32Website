@@ -88,7 +88,7 @@ export default async function handler(req, res) {
   
   // HTTP requests - forward to ESP32
   if (!esp32Socket || esp32Socket.readyState !== 1) {
-    res.status(503).type('html').send(`
+    res.status(503).setHeader('Content-Type', 'text/html').send(`
       <!DOCTYPE html>
       <html>
         <head><title>ESP32 Offline</title></head>
